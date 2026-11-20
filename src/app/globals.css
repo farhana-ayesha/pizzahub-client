@@ -1,26 +1,160 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fff9f2;
+  --foreground: #2b1a12;
+  --card: #ffffff;
+  --card-foreground: #2b1a12;
+  --popover: #ffffff;
+  --popover-foreground: #2b1a12;
+  --primary: #db3a1f;
+  --primary-foreground: #fff9f2;
+  --secondary: #f7eadc;
+  --secondary-foreground: #4a2c1d;
+  --muted: #f7ede3;
+  --muted-foreground: #7d6354;
+  --accent: #fbe3c4;
+  --accent-foreground: #5b2e13;
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --border: #eddacb;
+  --input: #ead6c6;
+  --ring: #db3a1f;
+  --radius: 1rem;
+  --gold: #e8a33d;
+  --basil: #2f6b4f;
+  --cream: #fff4e6;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-gold: var(--gold);
+  --color-basil: var(--basil);
+  --color-cream: var(--cream);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 3px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 14px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: #f7b28d;
+  color: #2b1a12;
+}
+
+.container-page {
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 640px) {
+  .container-page {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container-page {
+    padding-inline: 2rem;
+  }
+}
+
+.display-title {
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  line-height: 1.04;
+}
+
+.hero-grid {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(120, 72, 42, 0.13) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+.warm-glow {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(232, 163, 61, 0.22), transparent 36%),
+    radial-gradient(circle at 85% 10%, rgba(219, 58, 31, 0.14), transparent 34%),
+    radial-gradient(circle at 70% 90%, rgba(47, 107, 79, 0.12), transparent 36%);
+}
+
+.text-gradient {
+  background: linear-gradient(92deg, #db3a1f 10%, #e87a28 55%, #b94d18 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.card-hover {
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  border-color: #dfbfa9;
+  box-shadow: 0 22px 45px -28px rgba(88, 40, 15, 0.45);
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-12px) rotate(1deg); }
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+.animate-float-slow {
+  animation: float-slow 7s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 18s linear infinite;
 }
