@@ -45,6 +45,7 @@ import {
   formatCurrency,
   formatDate,
   formatDateTime,
+  isPastDate,
 } from "@/lib/utils";
 
 export function ItemDetails() {
@@ -487,7 +488,7 @@ function OrderDialog({
       setError("Please choose a delivery date.");
       return;
     }
-    if (new Date(deliveryDate) < new Date(new Date().toDateString())) {
+    if (isPastDate(deliveryDate)) {
       setError("Delivery date cannot be in the past.");
       return;
     }

@@ -19,7 +19,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { categories, locations } from "@/lib/data";
+import { categories } from "@/lib/data";
 import { cn } from "@/lib/utils";
 
 const priceRanges = [
@@ -66,6 +66,14 @@ export function MenuBrowser() {
     [menuItems],
   );
 
+  const availableLocations = useMemo(
+    () =>
+      Array.from(new Set(publicItems.map((item) => item.location)))
+        .filter(Boolean)
+        .sort(),
+    [publicItems],
+  );
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     const result = publicItems.filter((item) => {
@@ -75,14 +83,16 @@ export function MenuBrowser() {
         item.itemName.toLowerCase().includes(query) ||
         item.description.toLowerCase().includes(query) ||
         item.category.toLowerCase().includes(query) ||
+        item.location.toLowerCase().includes(query) ||
+        item.tags.some((tag) => tag.toLowerCase().includes(query)) ||
         vendor?.businessName?.toLowerCase().includes(query);
       const matchesCategory = category === "all" || item.category === category;
       const matchesLocation = location === "all" || item.location === location;
       const matchesPrice =
         price === "all" ||
         (price === "under-10" && item.price < 10) ||
-        (price === "10-15" && item.price >= 10 && item.price <= 15) ||
-        (price === "15-20" && item.price > 15 && item.price <= 20) ||
+        (price === "10-15" && item.price >= 10 && item.price < 15) ||
+        (price === "15-20" && item.price >= 15 && item.price <= 20) ||
         (price === "over-20" && item.price > 20);
       return matchesSearch && matchesCategory && matchesLocation && matchesPrice;
     });
@@ -196,7 +206,7 @@ export function MenuBrowser() {
               aria-label="Filter by location"
             >
               <option value="all">All locations</option>
-              {locations.map((entry) => (
+              {availableLocations.map((entry) => (
                 <option key={entry} value={entry}>
                   {entry}
                 </option>

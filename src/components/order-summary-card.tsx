@@ -56,7 +56,8 @@ export function OrderSummaryCard({
                 {item?.itemName ?? "Item removed"}
               </h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {item?.category} · Qty {order.quantity} · {formatCurrency(order.total)}
+                {item?.category ?? "Menu item"} · Qty {order.quantity} ·{" "}
+                {formatCurrency(order.total)}
               </p>
             </div>
             <OrderStatusBadge status={order.status} />
