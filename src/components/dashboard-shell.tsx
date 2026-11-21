@@ -10,6 +10,7 @@ import {
   ClipboardList,
   CreditCard,
   Crown,
+  Heart,
   LayoutDashboard,
   LogOut,
   Menu as MenuIcon,
@@ -70,6 +71,7 @@ const navByRole: Record<Role, NavItem[]> = {
   customer: [
     { href: "/dashboard/customer", label: "Overview", icon: LayoutDashboard },
     { href: "/dashboard/customer/orders", label: "My Orders", icon: ReceiptText },
+    { href: "/dashboard/customer/favorites", label: "Favourites", icon: Heart },
     { href: "/dashboard/settings", label: "Profile Settings", icon: Settings },
   ],
   vendor: [

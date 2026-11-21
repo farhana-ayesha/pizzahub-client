@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
+  Heart,
   MapPin,
   ReceiptText,
   Settings,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/components/app-provider";
 import { BarChart, DonutChart } from "@/components/charts";
+import { MenuItemCard } from "@/components/menu-item-card";
 import { OrderSummaryCard } from "@/components/order-summary-card";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
@@ -25,9 +27,13 @@ import { photos } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 
 export default function CustomerOverviewPage() {
-  const { currentUser, orders, menuItems } = useApp();
+  const { currentUser, orders, menuItems, favourites, users } = useApp();
 
   if (!currentUser) return null;
+
+  const savedItems = favourites
+    .map((id) => menuItems.find((item) => item.id === id))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   const myOrders = orders
     .filter((order) => order.customerId === currentUser.id)
@@ -190,6 +196,12 @@ export default function CustomerOverviewPage() {
                 icon: ReceiptText,
               },
               {
+                href: "/dashboard/customer/favorites",
+                label: "My favourites",
+                description: `${savedItems.length} saved ${savedItems.length === 1 ? "item" : "items"}`,
+                icon: Heart,
+              },
+              {
                 href: "/dashboard/settings",
                 label: "Profile settings",
                 description: "Update your details",
@@ -223,6 +235,28 @@ export default function CustomerOverviewPage() {
           </div>
         </section>
       </div>
+
+      {savedItems.length > 0 && (
+        <section className="mt-8">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-bold">Saved favourites</h2>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard/customer/favorites">
+                View all <ArrowRight />
+              </Link>
+            </Button>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {savedItems.slice(0, 3).map((item) => (
+              <MenuItemCard
+                key={item.id}
+                item={item}
+                vendor={users.find((user) => user.id === item.vendorId)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

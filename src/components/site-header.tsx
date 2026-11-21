@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ChevronDown,
+  Heart,
   LayoutDashboard,
   LogOut,
   Menu as MenuIcon,
@@ -152,6 +153,13 @@ export function SiteHeader() {
                       <LayoutDashboard /> Dashboard
                     </Link>
                   </DropdownMenuItem>
+                  {currentUser.role === "customer" && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/dashboard/customer/favorites">
+                        <Heart /> My favourites
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem asChild>
                     <Link href="/dashboard/settings">
                       <Settings /> Profile settings
@@ -223,6 +231,16 @@ export function SiteHeader() {
                 {link.label}
               </Link>
             ))}
+            {currentUser && currentUser.role === "customer" && (
+              <Link
+                href="/dashboard/customer/favorites"
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-foreground hover:bg-secondary"
+              >
+                <Heart className="size-4 text-muted-foreground" />
+                My favourites
+              </Link>
+            )}
             {currentUser && (
               <Link
                 href="/dashboard/settings"

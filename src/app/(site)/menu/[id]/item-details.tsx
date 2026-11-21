@@ -51,12 +51,12 @@ import {
 export function ItemDetails() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { hydrated, currentUser, menuItems, users } = useApp();
+  const { hydrated, currentUser, menuItems, users, isFavourite, toggleFavourite } = useApp();
   const item = menuItems.find((entry) => entry.id === params.id);
   const [gallery, setGallery] = useState({ id: params.id, index: 0 });
   const [orderOpen, setOrderOpen] = useState(false);
   const [placed, setPlaced] = useState<{ id: string; orderId: string } | null>(null);
-  const [favourite, setFavourite] = useState(false);
+  const favourite = item ? isFavourite(item.id) : false;
 
   const image = gallery.id === params.id ? gallery.index : 0;
   const placedOrder = placed && placed.id === params.id ? placed.orderId : null;
@@ -281,17 +281,25 @@ export function ItemDetails() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => {
-                  setFavourite((value) => !value);
-                  toast.success(favourite ? "Removed from favourites." : "Saved to favourites.");
-                }}
-                aria-label={favourite ? "Remove from favourites" : "Save to favourites"}
-              >
-                <Heart className={cn("size-4", favourite && "fill-primary text-primary")} />
-              </Button>
+              {currentUser.role === "customer" && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    const result = toggleFavourite(item.id);
+                    if (!result.ok) {
+                      toast.error(result.error ?? "Could not update favourites.");
+                      return;
+                    }
+                    toast.success(
+                      favourite ? "Removed from favourites." : "Saved to favourites.",
+                    );
+                  }}
+                  aria-label={favourite ? "Remove from favourites" : "Save to favourites"}
+                >
+                  <Heart className={cn("size-4", favourite && "fill-primary text-primary")} />
+                </Button>
+              )}
               <Button variant="outline" size="icon" onClick={shareItem} aria-label="Share item">
                 <Share2 className="size-4" />
               </Button>

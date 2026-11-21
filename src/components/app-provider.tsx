@@ -38,6 +38,7 @@ import type {
 
 const DATA_KEY = "pizzahub-demo-v1";
 const SESSION_KEY = "pizzahub-session-v1";
+const FAVOURITES_KEY = "pizzahub-favourites-v1";
 
 type Result = { ok: boolean; error?: string };
 type AuthResult = Result & { role?: Role };
@@ -70,6 +71,9 @@ interface NewOrderInput {
 interface AppContextValue extends DemoState {
   currentUser: User | null;
   hydrated: boolean;
+  favourites: string[];
+  toggleFavourite: (itemId: string) => Result;
+  isFavourite: (itemId: string) => boolean;
   signIn: (email: string, password: string) => Promise<AuthResult>;
   signUp: (input: {
     name: string;
@@ -118,6 +122,24 @@ function readStoredState(): DemoState {
 
 const wait = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function readStoredFavourites(): Record<string, string[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(FAVOURITES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: Record<string, string[]> = {};
+    Object.entries(parsed).forEach(([userId, value]) => {
+      if (Array.isArray(value)) {
+        result[userId] = value.filter((entry): entry is string => typeof entry === "string");
+      }
+    });
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 function mapRemoteUser(remote: RemoteAuthUser, fallback?: User): User {
   const email = remote.email || fallback?.email || "";
   return {
@@ -164,6 +186,7 @@ function upsertUser(users: User[], incoming: User) {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<DemoState>(demoState);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [favouritesByUser, setFavouritesByUser] = useState<Record<string, string[]>>({});
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -181,6 +204,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const timer = window.setTimeout(async () => {
       if (cancelled) return;
       setState(stored);
+      setFavouritesByUser(readStoredFavourites());
 
       let sessionId =
         localSession && stored.users.some((user) => user.id === localSession)
@@ -237,9 +261,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUserId, hydrated]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      window.localStorage.setItem(FAVOURITES_KEY, JSON.stringify(favouritesByUser));
+    } catch {
+      // Ignore unavailable storage.
+    }
+  }, [favouritesByUser, hydrated]);
+
   const currentUser = useMemo(
     () => state.users.find((user) => user.id === currentUserId) ?? null,
     [state.users, currentUserId],
+  );
+
+  const favourites = useMemo(() => {
+    if (!currentUserId) return [];
+    const ids = favouritesByUser[currentUserId] ?? [];
+    return ids.filter((id) => state.menuItems.some((menuItem) => menuItem.id === id));
+  }, [currentUserId, favouritesByUser, state.menuItems]);
+
+  const isFavourite = useCallback(
+    (itemId: string) => favourites.includes(itemId),
+    [favourites],
+  );
+
+  const toggleFavourite = useCallback(
+    (itemId: string): Result => {
+      if (!currentUser) return { ok: false, error: "Sign in to save favourites." };
+      if (currentUser.role !== "customer") {
+        return { ok: false, error: "Only customers can save favourites." };
+      }
+      if (!state.menuItems.some((menuItem) => menuItem.id === itemId)) {
+        return { ok: false, error: "Menu item not found." };
+      }
+      setFavouritesByUser((prev) => {
+        const existing = prev[currentUser.id] ?? [];
+        const next = existing.includes(itemId)
+          ? existing.filter((id) => id !== itemId)
+          : [...existing, itemId];
+        return { ...prev, [currentUser.id]: next };
+      });
+      return { ok: true };
+    },
+    [currentUser, state.menuItems],
   );
 
   const signIn = useCallback(
@@ -820,6 +885,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...state,
       currentUser,
       hydrated,
+      favourites,
+      toggleFavourite,
+      isFavourite,
       signIn,
       signUp,
       signOut,
@@ -842,6 +910,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       state,
       currentUser,
       hydrated,
+      favourites,
+      toggleFavourite,
+      isFavourite,
       signIn,
       signUp,
       signOut,
