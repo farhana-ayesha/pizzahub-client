@@ -9,6 +9,15 @@ import {
   useState,
 } from "react";
 import { demoState } from "@/lib/data";
+import {
+  getRemoteSession,
+  normalizeRole,
+  remoteAuthEnabled,
+  remoteSignIn,
+  remoteSignOut,
+  remoteSignUp,
+  type RemoteAuthUser,
+} from "@/lib/auth-client";
 import type {
   DemoState,
   MenuItem,
@@ -98,6 +107,42 @@ function readStoredState(): DemoState {
 
 const wait = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function mapRemoteUser(remote: RemoteAuthUser, fallback?: User): User {
+  const email = remote.email || fallback?.email || "";
+  return {
+    id: remote.id || fallback?.id || `u-${Date.now()}`,
+    name: remote.name || fallback?.name || "PizzaHub user",
+    email,
+    password: "",
+    image:
+      remote.image ||
+      fallback?.image ||
+      `https://i.pravatar.cc/150?u=${encodeURIComponent(email || remote.id)}`,
+    role: normalizeRole(remote.role ?? fallback?.role),
+    isBlocked: Boolean(remote.isBlocked ?? fallback?.isBlocked),
+    businessName: remote.businessName ?? fallback?.businessName,
+    subscriptionPlan:
+      remote.subscriptionPlan === "premium" || remote.subscriptionPlan === "free"
+        ? remote.subscriptionPlan
+        : fallback?.subscriptionPlan,
+    subscriptionExpiresAt:
+      remote.subscriptionExpiresAt ?? fallback?.subscriptionExpiresAt,
+    phone: remote.phone ?? fallback?.phone,
+    location: remote.location ?? fallback?.location,
+    createdAt: remote.createdAt ?? fallback?.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function upsertUser(users: User[], incoming: User) {
+  const exists = users.some((user) => user.id === incoming.id);
+  if (!exists) return [...users, incoming];
+  return users.map((user) =>
+    user.id === incoming.id
+      ? { ...user, ...incoming, password: user.password || incoming.password }
+      : user,
+  );
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<DemoState>(demoState);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -106,23 +151,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // localStorage is only available in the browser, so the stored demo state is loaded
     // once after mount. Deferring the updates keeps this a single non-cascading commit.
+    let cancelled = false;
     const stored = readStoredState();
-    let session: string | null = null;
+    let localSession: string | null = null;
     try {
-      session = window.localStorage.getItem(SESSION_KEY);
+      localSession = window.localStorage.getItem(SESSION_KEY);
     } catch {
       // Ignore unavailable storage.
     }
 
-    const timer = window.setTimeout(() => {
+    const timer = window.setTimeout(async () => {
+      if (cancelled) return;
       setState(stored);
-      if (session && stored.users.some((user) => user.id === session)) {
-        setCurrentUserId(session);
+
+      let sessionId =
+        localSession && stored.users.some((user) => user.id === localSession)
+          ? localSession
+          : null;
+
+      // When a Better Auth server is configured, its session is the source of
+      // truth. The local demo session is ignored so stale accounts can never
+      // keep access after signing out on the server.
+      if (remoteAuthEnabled) {
+        sessionId = null;
+        const remoteUser = await getRemoteSession();
+        if (cancelled) return;
+        if (remoteUser) {
+          const mapped = mapRemoteUser(remoteUser);
+          setState((prev) => ({
+            ...prev,
+            users: upsertUser(prev.users, mapped),
+          }));
+          sessionId = mapped.id;
+        }
       }
+
+      if (cancelled) return;
+      setCurrentUserId(sessionId);
       setHydrated(true);
     }, 0);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -154,6 +226,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string): Promise<AuthResult> => {
+      if (remoteAuthEnabled) {
+        try {
+          const remoteUser = await remoteSignIn(email.trim(), password);
+          const existing = state.users.find(
+            (user) => user.id === remoteUser.id || user.email === remoteUser.email,
+          );
+          const mapped = mapRemoteUser(remoteUser, existing);
+          if (mapped.isBlocked) {
+            return {
+              ok: false,
+              error: "This account has been blocked. Please contact support.",
+            };
+          }
+          setState((prev) => ({
+            ...prev,
+            users: upsertUser(prev.users, mapped),
+          }));
+          setCurrentUserId(mapped.id);
+          return { ok: true, role: mapped.role };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Email or password is incorrect.",
+          };
+        }
+      }
+
       await wait();
       const found = state.users.find(
         (user) => user.email.toLowerCase() === email.trim().toLowerCase(),
@@ -181,15 +283,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       role: "customer" | "vendor";
       image?: string;
     }): Promise<AuthResult> => {
-      await wait(500);
-      if (state.users.some((u) => u.email.toLowerCase() === input.email.trim().toLowerCase())) {
-        return { ok: false, error: "An account with this email already exists." };
-      }
-      if (input.password.length < 6 || !/[A-Z]/.test(input.password) || !/[a-z]/.test(input.password)) {
+      if (
+        input.password.length < 6 ||
+        !/[A-Z]/.test(input.password) ||
+        !/[a-z]/.test(input.password)
+      ) {
         return {
           ok: false,
           error: "Password must be 6+ characters with one uppercase and one lowercase letter.",
         };
+      }
+
+      if (remoteAuthEnabled) {
+        try {
+          const remoteUser = await remoteSignUp({
+            name: input.name.trim(),
+            email: input.email.trim().toLowerCase(),
+            password: input.password,
+            role: input.role,
+            image: input.image?.trim() || undefined,
+          });
+          const mapped = mapRemoteUser(remoteUser, {
+            id: remoteUser.id,
+            name: input.name.trim(),
+            email: input.email.trim().toLowerCase(),
+            password: "",
+            image: input.image?.trim() || "",
+            role: input.role,
+            isBlocked: false,
+            businessName:
+              input.role === "vendor" ? `${input.name.trim()}'s Pizzeria` : undefined,
+            subscriptionPlan: input.role === "vendor" ? "free" : undefined,
+            createdAt: new Date().toISOString(),
+          });
+          setState((prev) => ({
+            ...prev,
+            users: upsertUser(prev.users, mapped),
+          }));
+          setCurrentUserId(mapped.id);
+          return { ok: true, role: mapped.role };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Could not create your account.",
+          };
+        }
+      }
+
+      await wait(500);
+      if (state.users.some((u) => u.email.toLowerCase() === input.email.trim().toLowerCase())) {
+        return { ok: false, error: "An account with this email already exists." };
       }
       const newUser: User = {
         id: `u-${Date.now()}`,
@@ -212,7 +358,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [state.users],
   );
 
-  const signOut = useCallback(() => setCurrentUserId(null), []);
+  const signOut = useCallback(() => {
+    setCurrentUserId(null);
+    if (remoteAuthEnabled) {
+      void remoteSignOut();
+    }
+  }, []);
 
   const updateProfile = useCallback(
     (input: ProfileInput): Result => {
