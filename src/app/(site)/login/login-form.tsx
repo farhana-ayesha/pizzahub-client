@@ -17,7 +17,9 @@ import {
 import { toast } from "sonner";
 import { useApp } from "@/components/app-provider";
 import { AuthShell } from "@/components/auth-shell";
+import { GoogleAuthDialog } from "@/components/google-auth-dialog";
 import { GoogleIcon } from "@/components/google-icon";
+import { remoteAuthEnabled, remoteGoogleSignIn } from "@/lib/auth-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +48,7 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState<string | null>(null);
+  const [googleOpen, setGoogleOpen] = useState(false);
 
   const redirect = searchParams.get("redirect");
   const redirectPath =
@@ -77,8 +80,30 @@ export function LoginForm() {
     void submit(undefined, account.email, account.password);
   }
 
-  function googleSignIn() {
-    toast.info("Google OAuth will be connected to Better Auth in the backend build.");
+  async function googleSignIn() {
+    if (!remoteAuthEnabled) {
+      setGoogleOpen(true);
+      return;
+    }
+    setLoading("google");
+    try {
+      const url = await remoteGoogleSignIn(
+        `${window.location.origin}${redirectPath ?? "/dashboard"}`,
+      );
+      window.location.href = url;
+    } catch (error) {
+      setLoading(null);
+      toast.error(
+        error instanceof Error ? error.message : "Could not start Google sign in.",
+      );
+    }
+  }
+
+  async function continueWithDemoGoogle() {
+    const result = await signIn(demoAccounts[0].email, demoAccounts[0].password);
+    if (!result.ok || !result.role) return result;
+    router.push(redirectPath ?? dashboardPath[result.role]);
+    return result;
   }
 
   return (
@@ -109,8 +134,9 @@ export function LoginForm() {
         variant="outline"
         className="mt-6 w-full"
         onClick={googleSignIn}
+        disabled={loading !== null}
       >
-        <GoogleIcon /> Continue with Google
+        <GoogleIcon /> {loading === "google" ? "Opening Google…" : "Continue with Google"}
       </Button>
 
       <div className="my-5 flex items-center gap-3">
@@ -227,6 +253,13 @@ export function LoginForm() {
           error.
         </p>
       </div>
+
+      <GoogleAuthDialog
+        open={googleOpen}
+        onOpenChange={setGoogleOpen}
+        mode="signin"
+        onContinue={continueWithDemoGoogle}
+      />
     </AuthShell>
   );
 }

@@ -18,7 +18,9 @@ import {
 import { toast } from "sonner";
 import { useApp } from "@/components/app-provider";
 import { AuthShell } from "@/components/auth-shell";
+import { GoogleAuthDialog } from "@/components/google-auth-dialog";
 import { GoogleIcon } from "@/components/google-icon";
+import { remoteAuthEnabled, remoteGoogleSignIn } from "@/lib/auth-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +30,7 @@ import { cn } from "@/lib/utils";
 export function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signUp } = useApp();
+  const { signUp, signIn } = useApp();
   const initialRole = searchParams.get("role") === "vendor" ? "vendor" : "customer";
   const [role, setRole] = useState<"customer" | "vendor">(initialRole);
   const [name, setName] = useState("");
@@ -40,6 +42,8 @@ export function RegisterForm() {
   const [terms, setTerms] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleOpen, setGoogleOpen] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const passwordChecks = [
     { label: "At least 6 characters", valid: password.length >= 6 },
@@ -81,8 +85,45 @@ export function RegisterForm() {
     router.push(role === "vendor" ? "/dashboard/vendor" : "/dashboard/customer");
   }
 
-  function googleSignUp() {
-    toast.info("Google sign-up will be connected to Better Auth in the backend build.");
+  async function googleSignUp() {
+    if (!remoteAuthEnabled) {
+      setGoogleOpen(true);
+      return;
+    }
+    setGoogleLoading(true);
+    try {
+      const url = await remoteGoogleSignIn(
+        `${window.location.origin}/dashboard/customer`,
+      );
+      window.location.href = url;
+    } catch (error) {
+      setGoogleLoading(false);
+      toast.error(
+        error instanceof Error ? error.message : "Could not start Google sign up.",
+      );
+    }
+  }
+
+  async function continueWithDemoGoogle() {
+    const result = await signUp({
+      name: "Google Guest",
+      email: "google.guest@pizzahub.com",
+      password: "Password123",
+      role: "customer",
+    });
+    if (result.ok) {
+      router.push("/dashboard/customer");
+      return result;
+    }
+    const fallback = await signIn("google.guest@pizzahub.com", "Password123");
+    if (!fallback.ok) {
+      return {
+        ok: false,
+        error: fallback.error ?? "Could not open the demo Google account.",
+      };
+    }
+    router.push("/dashboard/customer");
+    return fallback;
   }
 
   return (
@@ -99,8 +140,14 @@ export function RegisterForm() {
         </p>
       </div>
 
-      <Button type="button" variant="outline" className="mt-5 w-full" onClick={googleSignUp}>
-        <GoogleIcon /> Continue with Google
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-5 w-full"
+        onClick={googleSignUp}
+        disabled={googleLoading}
+      >
+        <GoogleIcon /> {googleLoading ? "Opening Google…" : "Continue with Google"}
       </Button>
 
       <div className="my-4 flex items-center gap-3">
@@ -296,6 +343,13 @@ export function RegisterForm() {
           Sign in
         </Link>
       </p>
+
+      <GoogleAuthDialog
+        open={googleOpen}
+        onOpenChange={setGoogleOpen}
+        mode="signup"
+        onContinue={continueWithDemoGoogle}
+      />
     </AuthShell>
   );
 }
