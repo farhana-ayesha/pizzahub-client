@@ -16,6 +16,7 @@ import {
   PlusCircle,
   ReceiptText,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   ShoppingBag,
   Store,
@@ -194,6 +195,40 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     router.push("/login");
   }
 
+  if (currentUser.isBlocked) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[#fdf8f2] px-4 py-16">
+        <div className="w-full max-w-lg rounded-3xl border border-[#efc1b9] bg-card p-8 text-center shadow-[0_30px_80px_-50px_rgba(80,35,12,0.55)]">
+          <span className="mx-auto grid size-16 place-items-center rounded-2xl bg-[#fde7e4] text-[#a3271a]">
+            <ShieldAlert className="size-8" />
+          </span>
+          <h1 className="mt-5 text-2xl font-extrabold tracking-[-0.03em]">
+            This account is blocked
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Your PizzaHub account has been blocked by an administrator. Dashboards, ordering
+            and menu management are unavailable until the block is lifted.
+          </p>
+          <p className="mt-3 rounded-xl bg-cream p-3 text-xs text-muted-foreground">
+            Think this is a mistake? Email{" "}
+            <a href="mailto:hello@pizzahub.com" className="font-semibold text-primary hover:underline">
+              hello@pizzahub.com
+            </a>{" "}
+            and our team will review it.
+          </p>
+          <div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
+            <Button onClick={handleSignOut}>
+              <LogOut /> Sign out
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/menu">Browse the public menu</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const plan = currentUser.subscriptionPlan;
 
   return (
@@ -305,10 +340,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                     {currentUser.email}
                   </span>
                 </DropdownMenuLabel>
-                <div className="px-2.5 pb-2">
+                <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
                   <Badge variant="secondary" className="capitalize">
                     {currentUser.role}
                   </Badge>
+                  {currentUser.isBlocked && (
+                    <Badge variant="destructive">
+                      <ShieldAlert className="size-3" /> Blocked
+                    </Badge>
+                  )}
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>

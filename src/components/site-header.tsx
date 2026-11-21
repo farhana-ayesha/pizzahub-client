@@ -137,11 +137,14 @@ export function SiteHeader() {
                       {currentUser.email}
                     </span>
                   </DropdownMenuLabel>
-                  <div className="px-2.5 pb-2">
+                  <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
                     <Badge variant={currentUser.role === "vendor" ? "premium" : "secondary"}>
                       {roleLabel[currentUser.role]}
                       {currentUser.subscriptionPlan === "premium" ? " · Premium" : ""}
                     </Badge>
+                    {currentUser.isBlocked && (
+                      <Badge variant="destructive">Blocked</Badge>
+                    )}
                   </div>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
