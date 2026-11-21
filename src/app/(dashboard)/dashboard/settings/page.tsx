@@ -3,9 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
   BadgeCheck,
   Crown,
+  Eye,
+  EyeOff,
   Info,
+  KeyRound,
   Mail,
   MapPin,
   Phone,
@@ -26,7 +30,7 @@ import { Label } from "@/components/ui/label";
 import { formatDate } from "@/lib/utils";
 
 export default function ProfileSettingsPage() {
-  const { currentUser, updateProfile } = useApp();
+  const { currentUser, updateProfile, changePassword } = useApp();
   const [name, setName] = useState(currentUser?.name ?? "");
   const [image, setImage] = useState(currentUser?.image ?? "");
   const [phone, setPhone] = useState(currentUser?.phone ?? "");
@@ -34,6 +38,12 @@ export default function ProfileSettingsPage() {
   const [businessName, setBusinessName] = useState(currentUser?.businessName ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   if (!currentUser) return null;
 
@@ -70,6 +80,36 @@ export default function ProfileSettingsPage() {
       return;
     }
     toast.success("Profile updated successfully.");
+  }
+
+  async function submitPassword(event: React.FormEvent) {
+    event.preventDefault();
+    setPasswordError("");
+    if (!currentPassword) {
+      setPasswordError("Enter your current password.");
+      return;
+    }
+    if (newPassword.length < 6 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword)) {
+      setPasswordError(
+        "New password must be 6+ characters with one uppercase and one lowercase letter.",
+      );
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match.");
+      return;
+    }
+    setPasswordSaving(true);
+    const result = await changePassword(currentPassword, newPassword);
+    setPasswordSaving(false);
+    if (!result.ok) {
+      setPasswordError(result.error ?? "Could not change your password.");
+      return;
+    }
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    toast.success("Password changed successfully.");
   }
 
   return (
@@ -252,6 +292,72 @@ export default function ProfileSettingsPage() {
               Passwords are hashed and session tokens are issued server-side. Role and
               subscription fields are never editable from profile updates, and blocked accounts
               lose access to protected features immediately.
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <KeyRound className="size-5 text-primary" /> Change password
+              </CardTitle>
+              <CardDescription>
+                Use at least 6 characters with one uppercase and one lowercase letter.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={submitPassword} className="grid gap-3">
+                <div>
+                  <Label htmlFor="current-password">Current password</Label>
+                  <Input
+                    id="current-password"
+                    type={showPasswords ? "text" : "password"}
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="settings-new-password">New password</Label>
+                  <Input
+                    id="settings-new-password"
+                    type={showPasswords ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="settings-confirm-password">Confirm new password</Label>
+                  <Input
+                    id="settings-confirm-password"
+                    type={showPasswords ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    required
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswords((value) => !value)}
+                  className="flex items-center gap-1.5 text-left text-[11px] font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  {showPasswords ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                  {showPasswords ? "Hide passwords" : "Show passwords"}
+                </button>
+
+                {passwordError && (
+                  <p className="flex items-start gap-2 rounded-xl bg-[#fde7e4] p-3 text-xs font-medium text-[#a3271a]">
+                    <AlertCircle className="mt-0.5 size-4 shrink-0" /> {passwordError}
+                  </p>
+                )}
+
+                <Button type="submit" className="w-full" disabled={passwordSaving}>
+                  <KeyRound /> {passwordSaving ? "Updating…" : "Update password"}
+                </Button>
+              </form>
             </CardContent>
           </Card>
         </div>

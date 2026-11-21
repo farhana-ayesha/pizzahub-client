@@ -142,13 +142,12 @@ export function LoginForm() {
         <div>
           <div className="flex items-center justify-between">
             <Label htmlFor="password">Password</Label>
-            <button
-              type="button"
-              onClick={() => toast.info("Password reset will be connected to Better Auth.")}
+            <Link
+              href="/forgot-password"
               className="mb-1.5 text-xs font-semibold text-primary hover:underline"
             >
               Forgot password?
-            </button>
+            </Link>
           </div>
           <div className="relative">
             <Lock className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

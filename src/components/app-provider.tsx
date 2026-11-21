@@ -13,11 +13,19 @@ import {
   getRemoteSession,
   normalizeRole,
   remoteAuthEnabled,
+  remoteChangePassword,
+  remoteRequestPasswordReset,
+  remoteResetPassword,
   remoteSignIn,
   remoteSignOut,
   remoteSignUp,
   type RemoteAuthUser,
 } from "@/lib/auth-client";
+import {
+  clearLocalResetToken,
+  createLocalResetToken,
+  readLocalResetToken,
+} from "@/lib/password-reset";
 import type {
   DemoState,
   MenuItem,
@@ -71,6 +79,9 @@ interface AppContextValue extends DemoState {
     image?: string;
   }) => Promise<AuthResult>;
   signOut: () => void;
+  requestPasswordReset: (email: string) => Promise<Result & { resetLink?: string }>;
+  resetPassword: (token: string, newPassword: string) => Promise<Result>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<Result>;
   updateProfile: (input: ProfileInput) => Result;
   addMenuItem: (input: NewMenuItemInput) => Result & { id?: string };
   updateMenuItem: (id: string, input: NewMenuItemInput) => Result;
@@ -132,6 +143,13 @@ function mapRemoteUser(remote: RemoteAuthUser, fallback?: User): User {
     createdAt: remote.createdAt ?? fallback?.createdAt ?? new Date().toISOString(),
   };
 }
+
+function isStrongPassword(value: string) {
+  return value.length >= 6 && /[A-Z]/.test(value) && /[a-z]/.test(value);
+}
+
+const passwordRuleMessage =
+  "Password must be 6+ characters with one uppercase and one lowercase letter.";
 
 function upsertUser(users: User[], incoming: User) {
   const exists = users.some((user) => user.id === incoming.id);
@@ -364,6 +382,126 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       void remoteSignOut();
     }
   }, []);
+
+  const requestPasswordReset = useCallback(
+    async (email: string): Promise<Result & { resetLink?: string }> => {
+      const normalized = email.trim().toLowerCase();
+
+      if (remoteAuthEnabled) {
+        try {
+          await remoteRequestPasswordReset(
+            normalized,
+            `${window.location.origin}/reset-password`,
+          );
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Could not send the reset email.",
+          };
+        }
+      }
+
+      await wait(400);
+      const found = state.users.find((user) => user.email.toLowerCase() === normalized);
+      if (!found) {
+        // Do not reveal whether an account exists.
+        return { ok: true };
+      }
+      const token = createLocalResetToken(found.email);
+      return {
+        ok: true,
+        resetLink: `/reset-password?token=${encodeURIComponent(token)}`,
+      };
+    },
+    [state.users],
+  );
+
+  const resetPassword = useCallback(
+    async (token: string, newPassword: string): Promise<Result> => {
+      if (!isStrongPassword(newPassword)) {
+        return { ok: false, error: passwordRuleMessage };
+      }
+
+      if (remoteAuthEnabled) {
+        try {
+          await remoteResetPassword(token, newPassword);
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "This reset link is invalid or expired.",
+          };
+        }
+      }
+
+      const email = readLocalResetToken(token);
+      if (!email) {
+        return { ok: false, error: "This reset link is invalid or expired." };
+      }
+      const found = state.users.find((user) => user.email.toLowerCase() === email);
+      if (!found) {
+        return { ok: false, error: "This account no longer exists." };
+      }
+      setState((prev) => ({
+        ...prev,
+        users: prev.users.map((user) =>
+          user.id === found.id ? { ...user, password: newPassword } : user,
+        ),
+      }));
+      clearLocalResetToken();
+      return { ok: true };
+    },
+    [state.users],
+  );
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string): Promise<Result> => {
+      if (!currentUser) return { ok: false, error: "You must be signed in." };
+      if (!isStrongPassword(newPassword)) {
+        return { ok: false, error: passwordRuleMessage };
+      }
+      if (currentPassword === newPassword) {
+        return {
+          ok: false,
+          error: "Choose a new password that is different from your current one.",
+        };
+      }
+
+      if (remoteAuthEnabled) {
+        try {
+          await remoteChangePassword(currentPassword, newPassword);
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Could not change your password.",
+          };
+        }
+      }
+
+      if (currentUser.password !== currentPassword) {
+        return { ok: false, error: "Current password is incorrect." };
+      }
+      setState((prev) => ({
+        ...prev,
+        users: prev.users.map((user) =>
+          user.id === currentUser.id ? { ...user, password: newPassword } : user,
+        ),
+      }));
+      return { ok: true };
+    },
+    [currentUser],
+  );
 
   const updateProfile = useCallback(
     (input: ProfileInput): Result => {
@@ -685,6 +823,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signUp,
       signOut,
+      requestPasswordReset,
+      resetPassword,
+      changePassword,
       updateProfile,
       addMenuItem,
       updateMenuItem,
@@ -704,6 +845,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signUp,
       signOut,
+      requestPasswordReset,
+      resetPassword,
+      changePassword,
       updateProfile,
       addMenuItem,
       updateMenuItem,
