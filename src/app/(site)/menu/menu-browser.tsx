@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowUpDown,
@@ -32,7 +32,7 @@ const priceRanges = [
 
 export function MenuBrowser() {
   const searchParams = useSearchParams();
-  const { menuItems, users } = useApp();
+  const { menuItems, users, hydrated } = useApp();
   const paramCategory = searchParams.get("category");
 
   const [search, setSearch] = useState("");
@@ -47,16 +47,10 @@ export function MenuBrowser() {
   const [location, setLocation] = useState("all");
   const [price, setPrice] = useState("all");
   const [sort, setSort] = useState("recommended");
-  const [loading, setLoading] = useState(true);
 
   function setCategory(value: string) {
     setCategoryOverride({ param: paramCategory, value });
   }
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), 500);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   const publicItems = useMemo(
     () =>
@@ -267,7 +261,7 @@ export function MenuBrowser() {
           )}
         </div>
 
-        {loading ? (
+        {!hydrated ? (
           <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, index) => (
               <div key={index} className="rounded-2xl border border-border bg-card p-3">
