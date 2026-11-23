@@ -26,8 +26,9 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { categories, locations } from "@/lib/data";
+import { uploadImage } from "@/lib/upload";
 import type { MenuItem } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 export function MenuItemForm({
   mode,
@@ -49,6 +50,7 @@ export function MenuItemForm({
   const [imageUrl, setImageUrl] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(0);
 
   if (!currentUser) return null;
   const isPremium = currentUser.subscriptionPlan === "premium";
@@ -64,28 +66,44 @@ export function MenuItemForm({
     setImageUrl("");
   }
 
-  function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
-    Array.from(files)
-      .slice(0, 3)
-      .forEach((file) => {
-        if (!file.type.startsWith("image/")) {
-          toast.error(`${file.name} is not an image file.`);
-          return;
+    const selected = Array.from(files).slice(0, 3);
+    setUploading((count) => count + selected.length);
+
+    for (const file of selected) {
+      if (!file.type.startsWith("image/")) {
+        toast.error(`${file.name} is not an image file.`);
+        setUploading((count) => Math.max(0, count - 1));
+        continue;
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        toast.error("Please use an image smaller than 8MB.");
+        setUploading((count) => Math.max(0, count - 1));
+        continue;
+      }
+
+      try {
+        const result = await uploadImage(file);
+        setImages((prev) => [...prev, result.url]);
+        if (result.warning) {
+          toast.warning(result.warning);
+        } else {
+          toast.success(
+            result.provider === "imgbb"
+              ? "Image uploaded to ImgBB and compressed."
+              : "Image compressed and added to the gallery.",
+          );
         }
-        if (file.size > 2 * 1024 * 1024) {
-          toast.error("Please use an image smaller than 2MB.");
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === "string") {
-            setImages((prev) => [...prev, reader.result as string]);
-            toast.success("Image added to the gallery.");
-          }
-        };
-        reader.readAsDataURL(file);
-      });
+      } catch (uploadError) {
+        toast.error(
+          uploadError instanceof Error ? uploadError.message : "Could not process that image.",
+        );
+      } finally {
+        setUploading((count) => Math.max(0, count - 1));
+      }
+    }
+
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -114,7 +132,6 @@ export function MenuItemForm({
       return;
     }
     setSaving(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
     const payload = {
       itemName,
       category,
@@ -124,7 +141,9 @@ export function MenuItemForm({
       images,
     };
     const result =
-      mode === "create" ? addMenuItem(payload) : updateMenuItem(item?.id ?? "", payload);
+      mode === "create"
+        ? await addMenuItem(payload)
+        : await updateMenuItem(item?.id ?? "", payload);
     setSaving(false);
     if (!result.ok) {
       setError(result.error ?? "Could not save the menu item.");
@@ -262,9 +281,9 @@ export function MenuItemForm({
                     htmlFor="image-upload"
                     className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#d8bfa9] bg-[#fffaf4] text-center text-[11px] font-semibold text-muted-foreground transition hover:border-primary hover:bg-cream hover:text-primary"
                   >
-                    <Upload className="size-5" />
-                    Upload image
-                    <span className="text-[9px] font-normal">JPG or PNG · 2MB max</span>
+                    <Upload className={cn("size-5", uploading > 0 && "animate-pulse")} />
+                    {uploading > 0 ? "Processing…" : "Upload image"}
+                    <span className="text-[9px] font-normal">JPG, PNG or WebP · 8MB max</span>
                   </label>
                   <input
                     ref={fileRef}
@@ -273,6 +292,7 @@ export function MenuItemForm({
                     accept="image/png,image/jpeg,image/webp"
                     multiple
                     className="sr-only"
+                    disabled={uploading > 0}
                     onChange={(event) => handleFiles(event.target.files)}
                   />
                 </div>
@@ -290,8 +310,8 @@ export function MenuItemForm({
                 </div>
                 <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-4 text-muted-foreground">
                   <Info className="mt-0.5 size-3 shrink-0" />
-                  File upload is previewed locally in this UI demo. In production, images are
-                  uploaded to ImgBB before the item is saved.
+                  Images are compressed in your browser and uploaded to ImgBB through the
+                  PizzaHub API before the item is saved.
                 </p>
               </div>
             </div>
