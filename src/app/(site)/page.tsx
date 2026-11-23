@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MenuItemCard } from "@/components/menu-item-card";
 import { Reveal } from "@/components/reveal";
+import { Skeleton } from "@/components/ui/skeleton";
 import { benefits, categories, photos, steps, testimonials } from "@/lib/data";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -37,7 +38,7 @@ const fadeUp = {
 };
 
 export default function HomePage() {
-  const { users, menuItems } = useApp();
+  const { users, menuItems, hydrated } = useApp();
   const publicItems = menuItems.filter(
     (item) => item.status === "approved" && item.active,
   );
@@ -227,7 +228,8 @@ export default function HomePage() {
               Featured pies worth a detour.
             </h2>
             <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
-              Hand-picked from the best local kitchens, starting at {formatCurrency(cheapest)}.
+              Hand-picked from the best local kitchens
+              {publicItems.length ? `, starting at ${formatCurrency(cheapest)}.` : "."}
             </p>
           </div>
           <Button asChild variant="outline" className="self-start sm:self-auto">
@@ -238,14 +240,32 @@ export default function HomePage() {
         </Reveal>
 
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {featured.map((item, index) => (
-            <Reveal key={item.id} delay={index * 0.04}>
-              <MenuItemCard
-                item={item}
-                vendor={users.find((user) => user.id === item.vendorId)}
-              />
-            </Reveal>
-          ))}
+          {!hydrated
+            ? Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={`featured-skeleton-${index}`}
+                  className="overflow-hidden rounded-2xl border border-border bg-card"
+                >
+                  <Skeleton className="aspect-[4/3] w-full rounded-none" />
+                  <div className="p-4">
+                    <Skeleton className="h-5 w-2/3" />
+                    <Skeleton className="mt-2 h-4 w-full" />
+                    <Skeleton className="mt-2 h-4 w-4/5" />
+                    <div className="mt-4 flex items-center justify-between">
+                      <Skeleton className="h-7 w-20" />
+                      <Skeleton className="h-9 w-28 rounded-full" />
+                    </div>
+                  </div>
+                </div>
+              ))
+            : featured.map((item, index) => (
+                <Reveal key={item.id} delay={index * 0.04}>
+                  <MenuItemCard
+                    item={item}
+                    vendor={users.find((user) => user.id === item.vendorId)}
+                  />
+                </Reveal>
+              ))}
         </div>
       </section>
 
