@@ -53,8 +53,7 @@ export default function CustomerOrdersPage() {
   async function confirmCancel() {
     if (!selected) return;
     setBusy(true);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    const result = cancelOrder(selected.id);
+    const result = await cancelOrder(selected.id);
     setBusy(false);
     if (!result.ok) {
       toast.error(result.error ?? "Could not cancel the order.");
