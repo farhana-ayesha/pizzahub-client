@@ -21,6 +21,7 @@ import {
   remoteSignUp,
   type RemoteAuthUser,
 } from "@/lib/auth-client";
+import { apiErrorMessage, apiFetch, clearAccessToken, primeAccessToken } from "@/lib/api";
 import {
   clearLocalResetToken,
   createLocalResetToken,
@@ -42,6 +43,7 @@ const FAVOURITES_KEY = "pizzahub-favourites-v1";
 
 type Result = { ok: boolean; error?: string };
 type AuthResult = Result & { role?: Role };
+type RedirectResult = Result & { url?: string };
 
 interface ProfileInput {
   name: string;
@@ -68,9 +70,18 @@ interface NewOrderInput {
   quantity: number;
 }
 
+interface RemoteStatePayload {
+  currentUser?: RemoteAuthUser | null;
+  users?: RemoteAuthUser[];
+  menuItems?: MenuItem[];
+  orders?: Order[];
+  transactions?: Transaction[];
+}
+
 interface AppContextValue extends DemoState {
   currentUser: User | null;
   hydrated: boolean;
+  refresh: () => Promise<void>;
   favourites: string[];
   toggleFavourite: (itemId: string) => Result;
   isFavourite: (itemId: string) => boolean;
@@ -86,20 +97,28 @@ interface AppContextValue extends DemoState {
   requestPasswordReset: (email: string) => Promise<Result & { resetLink?: string }>;
   resetPassword: (token: string, newPassword: string) => Promise<Result>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<Result>;
-  updateProfile: (input: ProfileInput) => Result;
-  addMenuItem: (input: NewMenuItemInput) => Result & { id?: string };
-  updateMenuItem: (id: string, input: NewMenuItemInput) => Result;
-  deleteMenuItem: (id: string) => Result;
-  setMenuStatus: (id: string, status: MenuItem["status"]) => Result;
-  toggleMenuItemActive: (id: string, active: boolean) => Result;
-  createOrder: (input: NewOrderInput) => Result & { id?: string };
-  cancelOrder: (id: string) => Result;
-  updateOrderStatus: (id: string, status: OrderStatus) => Result;
-  toggleBlockUser: (id: string) => Result;
-  upgradeSubscription: () => Result & { transactionId?: string };
+  updateProfile: (input: ProfileInput) => Promise<Result>;
+  addMenuItem: (input: NewMenuItemInput) => Promise<Result & { id?: string }>;
+  updateMenuItem: (id: string, input: NewMenuItemInput) => Promise<Result>;
+  deleteMenuItem: (id: string) => Promise<Result>;
+  setMenuStatus: (id: string, status: MenuItem["status"]) => Promise<Result>;
+  toggleMenuItemActive: (id: string, active: boolean) => Promise<Result>;
+  createOrder: (input: NewOrderInput) => Promise<Result & { id?: string }>;
+  cancelOrder: (id: string) => Promise<Result>;
+  updateOrderStatus: (id: string, status: OrderStatus) => Promise<Result>;
+  toggleBlockUser: (id: string) => Promise<Result>;
+  upgradeSubscription: () => Promise<RedirectResult>;
+  openBillingPortal: () => Promise<RedirectResult>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
+
+const EMPTY_STATE: DemoState = {
+  users: [],
+  menuItems: [],
+  orders: [],
+  transactions: [],
+};
 
 function readStoredState(): DemoState {
   if (typeof window === "undefined") return demoState;
@@ -150,7 +169,9 @@ function mapRemoteUser(remote: RemoteAuthUser, fallback?: User): User {
     image:
       remote.image ||
       fallback?.image ||
-      `https://i.pravatar.cc/150?u=${encodeURIComponent(email || remote.id)}`,
+      (email
+        ? `https://i.pravatar.cc/150?u=${encodeURIComponent(email || remote.id)}`
+        : ""),
     role: normalizeRole(remote.role ?? fallback?.role),
     isBlocked: Boolean(remote.isBlocked ?? fallback?.isBlocked),
     businessName: remote.businessName ?? fallback?.businessName,
@@ -163,6 +184,17 @@ function mapRemoteUser(remote: RemoteAuthUser, fallback?: User): User {
     phone: remote.phone ?? fallback?.phone,
     location: remote.location ?? fallback?.location,
     createdAt: remote.createdAt ?? fallback?.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function mapRemoteState(payload: RemoteStatePayload): DemoState {
+  return {
+    users: Array.isArray(payload.users)
+      ? payload.users.map((entry) => mapRemoteUser(entry))
+      : [],
+    menuItems: Array.isArray(payload.menuItems) ? payload.menuItems : [],
+    orders: Array.isArray(payload.orders) ? payload.orders : [],
+    transactions: Array.isArray(payload.transactions) ? payload.transactions : [],
   };
 }
 
@@ -184,15 +216,78 @@ function upsertUser(users: User[], incoming: User) {
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<DemoState>(demoState);
+  const [state, setState] = useState<DemoState>(() =>
+    remoteAuthEnabled ? EMPTY_STATE : demoState,
+  );
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [favouritesByUser, setFavouritesByUser] = useState<Record<string, string[]>>({});
   const [hydrated, setHydrated] = useState(false);
 
+  /**
+   * Loads the scoped snapshot for the current session. The server decides which
+   * records a visitor, customer, vendor or admin is allowed to see.
+   */
+  const refreshState = useCallback(async (): Promise<RemoteStatePayload> => {
+    const payload = await apiFetch<RemoteStatePayload>("/api/state");
+    const next = mapRemoteState(payload);
+    if (payload.currentUser) {
+      const self = mapRemoteUser(payload.currentUser);
+      next.users = upsertUser(next.users, self);
+      setState(next);
+      setCurrentUserId(self.id);
+    } else {
+      setState(next);
+      setCurrentUserId(null);
+    }
+    return payload;
+  }, []);
+
   useEffect(() => {
-    // localStorage is only available in the browser, so the stored demo state is loaded
-    // once after mount. Deferring the updates keeps this a single non-cascading commit.
     let cancelled = false;
+
+    if (remoteAuthEnabled) {
+      (async () => {
+        const remoteUser = await getRemoteSession();
+        if (cancelled) return;
+        if (remoteUser) await primeAccessToken();
+        if (cancelled) return;
+
+        try {
+          const payload = await apiFetch<RemoteStatePayload>("/api/state");
+          if (cancelled) return;
+          const next = mapRemoteState(payload);
+          const sessionUser = payload.currentUser ?? remoteUser ?? null;
+          if (sessionUser) {
+            const self = mapRemoteUser(sessionUser);
+            next.users = upsertUser(next.users, self);
+            setState(next);
+            setCurrentUserId(self.id);
+          } else {
+            setState(next);
+            setCurrentUserId(null);
+          }
+        } catch {
+          if (remoteUser) {
+            const self = mapRemoteUser(remoteUser);
+            setState({ ...EMPTY_STATE, users: [self] });
+            setCurrentUserId(self.id);
+          } else {
+            setState(EMPTY_STATE);
+            setCurrentUserId(null);
+          }
+        } finally {
+          if (!cancelled) setHydrated(true);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // localStorage is only available in the browser, so the stored demo state is
+    // loaded once after mount. Deferring the update keeps this a single
+    // non-cascading commit.
     const stored = readStoredState();
     let localSession: string | null = null;
     try {
@@ -201,35 +296,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Ignore unavailable storage.
     }
 
-    const timer = window.setTimeout(async () => {
+    const timer = window.setTimeout(() => {
       if (cancelled) return;
       setState(stored);
       setFavouritesByUser(readStoredFavourites());
-
-      let sessionId =
+      setCurrentUserId(
         localSession && stored.users.some((user) => user.id === localSession)
           ? localSession
-          : null;
-
-      // When a Better Auth server is configured, its session is the source of
-      // truth. The local demo session is ignored so stale accounts can never
-      // keep access after signing out on the server.
-      if (remoteAuthEnabled) {
-        sessionId = null;
-        const remoteUser = await getRemoteSession();
-        if (cancelled) return;
-        if (remoteUser) {
-          const mapped = mapRemoteUser(remoteUser);
-          setState((prev) => ({
-            ...prev,
-            users: upsertUser(prev.users, mapped),
-          }));
-          sessionId = mapped.id;
-        }
-      }
-
-      if (cancelled) return;
-      setCurrentUserId(sessionId);
+          : null,
+      );
       setHydrated(true);
     }, 0);
 
@@ -240,7 +315,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || remoteAuthEnabled) return;
     try {
       window.localStorage.setItem(DATA_KEY, JSON.stringify(state));
     } catch {
@@ -249,7 +324,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state, hydrated]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || remoteAuthEnabled) return;
     try {
       if (currentUserId) {
         window.localStorage.setItem(SESSION_KEY, currentUserId);
@@ -269,6 +344,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Ignore unavailable storage.
     }
   }, [favouritesByUser, hydrated]);
+
+  const refresh = useCallback(async () => {
+    if (!remoteAuthEnabled) return;
+    await refreshState();
+  }, [refreshState]);
 
   const currentUser = useMemo(
     () => state.users.find((user) => user.id === currentUserId) ?? null,
@@ -322,19 +402,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               error: "This account has been blocked. Please contact support.",
             };
           }
-          setState((prev) => ({
-            ...prev,
-            users: upsertUser(prev.users, mapped),
-          }));
-          setCurrentUserId(mapped.id);
+          await primeAccessToken(true);
+          try {
+            await refreshState();
+          } catch {
+            setState((prev) => ({
+              ...prev,
+              users: upsertUser(prev.users, mapped),
+            }));
+            setCurrentUserId(mapped.id);
+          }
           return { ok: true, role: mapped.role };
         } catch (error) {
           return {
             ok: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Email or password is incorrect.",
+            error: apiErrorMessage(error, "Email or password is incorrect."),
           };
         }
       }
@@ -355,7 +437,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCurrentUserId(found.id);
       return { ok: true, role: found.role };
     },
-    [state.users],
+    [refreshState, state.users],
   );
 
   const signUp = useCallback(
@@ -366,15 +448,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       role: "customer" | "vendor";
       image?: string;
     }): Promise<AuthResult> => {
-      if (
-        input.password.length < 6 ||
-        !/[A-Z]/.test(input.password) ||
-        !/[a-z]/.test(input.password)
-      ) {
-        return {
-          ok: false,
-          error: "Password must be 6+ characters with one uppercase and one lowercase letter.",
-        };
+      if (!isStrongPassword(input.password)) {
+        return { ok: false, error: passwordRuleMessage };
       }
 
       if (remoteAuthEnabled) {
@@ -399,19 +474,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             subscriptionPlan: input.role === "vendor" ? "free" : undefined,
             createdAt: new Date().toISOString(),
           });
-          setState((prev) => ({
-            ...prev,
-            users: upsertUser(prev.users, mapped),
-          }));
-          setCurrentUserId(mapped.id);
+          await primeAccessToken(true);
+          try {
+            await refreshState();
+          } catch {
+            setState((prev) => ({
+              ...prev,
+              users: upsertUser(prev.users, mapped),
+            }));
+            setCurrentUserId(mapped.id);
+          }
           return { ok: true, role: mapped.role };
         } catch (error) {
           return {
             ok: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Could not create your account.",
+            error: apiErrorMessage(error, "Could not create your account."),
           };
         }
       }
@@ -438,15 +515,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCurrentUserId(newUser.id);
       return { ok: true, role: newUser.role };
     },
-    [state.users],
+    [refreshState, state.users],
   );
 
   const signOut = useCallback(() => {
     setCurrentUserId(null);
+    clearAccessToken();
     if (remoteAuthEnabled) {
-      void remoteSignOut();
+      void (async () => {
+        await remoteSignOut();
+        try {
+          await refreshState();
+        } catch {
+          setState(EMPTY_STATE);
+        }
+      })();
     }
-  }, []);
+  }, [refreshState]);
 
   const requestPasswordReset = useCallback(
     async (email: string): Promise<Result & { resetLink?: string }> => {
@@ -462,10 +547,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch (error) {
           return {
             ok: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Could not send the reset email.",
+            error: apiErrorMessage(error, "Could not send the reset email."),
           };
         }
       }
@@ -498,10 +580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch (error) {
           return {
             ok: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : "This reset link is invalid or expired.",
+            error: apiErrorMessage(error, "This reset link is invalid or expired."),
           };
         }
       }
@@ -546,10 +625,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch (error) {
           return {
             ok: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Could not change your password.",
+            error: apiErrorMessage(error, "Could not change your password."),
           };
         }
       }
@@ -569,8 +645,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateProfile = useCallback(
-    (input: ProfileInput): Result => {
+    async (input: ProfileInput): Promise<Result> => {
       if (!currentUser) return { ok: false, error: "You must be signed in." };
+
+      if (remoteAuthEnabled) {
+        try {
+          const data = await apiFetch<{ user: RemoteAuthUser }>("/api/profile", {
+            method: "PATCH",
+            body: JSON.stringify({
+              name: input.name.trim(),
+              image: input.image.trim(),
+              phone: input.phone ?? "",
+              location: input.location ?? "",
+              ...(currentUser.role === "vendor"
+                ? { businessName: input.businessName?.trim() }
+                : {}),
+            }),
+          });
+          const mapped = mapRemoteUser(data.user, currentUser);
+          setState((prev) => ({
+            ...prev,
+            users: upsertUser(prev.users, mapped),
+          }));
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not update your profile."),
+          };
+        }
+      }
+
       setState((prev) => ({
         ...prev,
         users: prev.users.map((user) =>
@@ -595,13 +700,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addMenuItem = useCallback(
-    (input: NewMenuItemInput): Result & { id?: string } => {
+    async (input: NewMenuItemInput): Promise<Result & { id?: string }> => {
       if (!currentUser || currentUser.role !== "vendor") {
         return { ok: false, error: "Only vendors can add menu items." };
       }
       if (currentUser.isBlocked) {
         return { ok: false, error: "Blocked accounts cannot publish menu items." };
       }
+
+      if (remoteAuthEnabled) {
+        try {
+          const data = await apiFetch<{ item: MenuItem }>("/api/vendor/menu", {
+            method: "POST",
+            body: JSON.stringify(input),
+          });
+          await refreshState();
+          return { ok: true, id: data.item.id };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not save the menu item."),
+          };
+        }
+      }
+
       const activeCount = state.menuItems.filter(
         (menuItem) =>
           menuItem.vendorId === currentUser.id &&
@@ -635,12 +757,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({ ...prev, menuItems: [newItem, ...prev.menuItems] }));
       return { ok: true, id };
     },
-    [currentUser, state.menuItems],
+    [currentUser, refreshState, state.menuItems],
   );
 
   const updateMenuItem = useCallback(
-    (id: string, input: NewMenuItemInput): Result => {
+    async (id: string, input: NewMenuItemInput): Promise<Result> => {
       if (!currentUser) return { ok: false, error: "You must be signed in." };
+
+      if (remoteAuthEnabled) {
+        try {
+          await apiFetch(`/api/vendor/menu/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify(input),
+          });
+          await refreshState();
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not update the menu item."),
+          };
+        }
+      }
+
       const target = state.menuItems.find((menuItem) => menuItem.id === id);
       if (!target) return { ok: false, error: "Menu item not found." };
       if (target.vendorId !== currentUser.id) {
@@ -665,12 +804,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return { ok: true };
     },
-    [currentUser, state.menuItems],
+    [currentUser, refreshState, state.menuItems],
   );
 
   const deleteMenuItem = useCallback(
-    (id: string): Result => {
+    async (id: string): Promise<Result> => {
       if (!currentUser) return { ok: false, error: "You must be signed in." };
+
+      if (remoteAuthEnabled) {
+        try {
+          await apiFetch(
+            currentUser.role === "admin"
+              ? `/api/admin/menu/${id}`
+              : `/api/vendor/menu/${id}`,
+            { method: "DELETE" },
+          );
+          await refreshState();
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not delete the menu item."),
+          };
+        }
+      }
+
       const target = state.menuItems.find((menuItem) => menuItem.id === id);
       if (!target) return { ok: false, error: "Menu item not found." };
       if (currentUser.role !== "admin" && target.vendorId !== currentUser.id) {
@@ -682,14 +840,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return { ok: true };
     },
-    [currentUser, state.menuItems],
+    [currentUser, refreshState, state.menuItems],
   );
 
   const setMenuStatus = useCallback(
-    (id: string, status: MenuItem["status"]): Result => {
+    async (id: string, status: MenuItem["status"]): Promise<Result> => {
       if (!currentUser || currentUser.role !== "admin") {
         return { ok: false, error: "Only admins can review menu items." };
       }
+
+      if (remoteAuthEnabled) {
+        try {
+          await apiFetch(`/api/admin/menu/${id}/status`, {
+            method: "PATCH",
+            body: JSON.stringify({ status }),
+          });
+          await refreshState();
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not update the menu item."),
+          };
+        }
+      }
+
       setState((prev) => ({
         ...prev,
         menuItems: prev.menuItems.map((menuItem) =>
@@ -704,12 +879,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return { ok: true };
     },
-    [currentUser],
+    [currentUser, refreshState],
   );
 
   const toggleMenuItemActive = useCallback(
-    (id: string, active: boolean): Result => {
+    async (id: string, active: boolean): Promise<Result> => {
       if (!currentUser) return { ok: false, error: "You must be signed in." };
+
+      if (remoteAuthEnabled) {
+        try {
+          await apiFetch(`/api/vendor/menu/${id}/availability`, {
+            method: "PATCH",
+            body: JSON.stringify({ active }),
+          });
+          await refreshState();
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not update availability."),
+          };
+        }
+      }
+
       const target = state.menuItems.find((menuItem) => menuItem.id === id);
       if (!target) return { ok: false, error: "Menu item not found." };
       if (currentUser.role === "vendor" && target.vendorId !== currentUser.id) {
@@ -726,11 +918,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return { ok: true };
     },
-    [currentUser, state.menuItems],
+    [currentUser, refreshState, state.menuItems],
   );
 
   const createOrder = useCallback(
-    (input: NewOrderInput): Result & { id?: string } => {
+    async (input: NewOrderInput): Promise<Result & { id?: string }> => {
       if (!currentUser) return { ok: false, error: "Sign in to place an order." };
       if (currentUser.isBlocked) {
         return { ok: false, error: "Blocked accounts cannot place orders." };
@@ -738,6 +930,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (currentUser.role === "admin") {
         return { ok: false, error: "Admins cannot place customer orders." };
       }
+
+      if (remoteAuthEnabled) {
+        try {
+          const data = await apiFetch<{ order: Order }>("/api/orders", {
+            method: "POST",
+            body: JSON.stringify(input),
+          });
+          await refreshState();
+          return { ok: true, id: data.order.id };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not place the order."),
+          };
+        }
+      }
+
       const target = state.menuItems.find((menuItem) => menuItem.id === input.itemId);
       if (!target || target.status !== "approved" || !target.active) {
         return { ok: false, error: "This item is not available to order." };
@@ -775,12 +984,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({ ...prev, orders: [newOrder, ...prev.orders] }));
       return { ok: true, id };
     },
-    [currentUser, state.menuItems, state.orders],
+    [currentUser, refreshState, state.menuItems, state.orders],
   );
 
   const cancelOrder = useCallback(
-    (id: string): Result => {
+    async (id: string): Promise<Result> => {
       if (!currentUser) return { ok: false, error: "You must be signed in." };
+
+      if (remoteAuthEnabled) {
+        try {
+          await apiFetch(`/api/orders/${id}/cancel`, { method: "PATCH" });
+          await refreshState();
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not cancel the order."),
+          };
+        }
+      }
+
       const order = state.orders.find((entry) => entry.id === id);
       if (!order) return { ok: false, error: "Order not found." };
       if (order.customerId !== currentUser.id) {
@@ -797,14 +1020,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return { ok: true };
     },
-    [currentUser, state.orders],
+    [currentUser, refreshState, state.orders],
   );
 
   const updateOrderStatus = useCallback(
-    (id: string, status: OrderStatus): Result => {
+    async (id: string, status: OrderStatus): Promise<Result> => {
       if (!currentUser || currentUser.role !== "vendor") {
         return { ok: false, error: "Only vendors can update orders." };
       }
+
+      if (remoteAuthEnabled) {
+        try {
+          await apiFetch(`/api/orders/${id}/status`, {
+            method: "PATCH",
+            body: JSON.stringify({ status }),
+          });
+          await refreshState();
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not update the order."),
+          };
+        }
+      }
+
       const order = state.orders.find((entry) => entry.id === id);
       if (!order) return { ok: false, error: "Order not found." };
       if (order.vendorId !== currentUser.id) {
@@ -824,17 +1064,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return { ok: true };
     },
-    [currentUser, state.orders],
+    [currentUser, refreshState, state.orders],
   );
 
   const toggleBlockUser = useCallback(
-    (id: string): Result => {
+    async (id: string): Promise<Result> => {
       if (!currentUser || currentUser.role !== "admin") {
         return { ok: false, error: "Only admins can manage users." };
       }
       if (id === currentUser.id) {
         return { ok: false, error: "You cannot block your own admin account." };
       }
+
+      if (remoteAuthEnabled) {
+        try {
+          await apiFetch(`/api/admin/users/${id}/block`, { method: "PATCH" });
+          await refreshState();
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: apiErrorMessage(error, "Could not update this user."),
+          };
+        }
+      }
+
       setState((prev) => ({
         ...prev,
         users: prev.users.map((user) =>
@@ -843,41 +1097,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return { ok: true };
     },
-    [currentUser],
+    [currentUser, refreshState],
   );
 
-  const upgradeSubscription = useCallback((): Result & { transactionId?: string } => {
+  const upgradeSubscription = useCallback(async (): Promise<RedirectResult> => {
     if (!currentUser || currentUser.role !== "vendor") {
       return { ok: false, error: "Only vendors can upgrade their plan." };
     }
-    const transactionId = `t-${Date.now()}`;
-    const expires = new Date();
-    expires.setFullYear(expires.getFullYear() + 1);
-    const transaction: Transaction = {
-      id: transactionId,
-      vendorId: currentUser.id,
-      plan: "premium",
-      amount: 29,
-      currency: "usd",
-      stripeSessionId: `cs_test_demo_${transactionId}`,
-      stripeSubscriptionId: `sub_demo_${currentUser.id}`,
-      status: "succeeded",
-      createdAt: new Date().toISOString(),
-    };
-    setState((prev) => ({
-      ...prev,
-      users: prev.users.map((user) =>
-        user.id === currentUser.id
-          ? {
-              ...user,
-              subscriptionPlan: "premium",
-              subscriptionExpiresAt: expires.toISOString(),
-            }
-          : user,
-      ),
-      transactions: [transaction, ...prev.transactions],
-    }));
-    return { ok: true, transactionId };
+    if (!remoteAuthEnabled) {
+      return {
+        ok: false,
+        error:
+          "Premium upgrades need the PizzaHub API with Stripe configured. Set NEXT_PUBLIC_API_URL and STRIPE_SECRET_KEY to test checkout.",
+      };
+    }
+
+    try {
+      const data = await apiFetch<{ url?: string; sessionId?: string }>(
+        "/api/vendor/subscription/checkout",
+        { method: "POST" },
+      );
+      if (!data.url) {
+        return { ok: false, error: "Stripe did not return a checkout URL." };
+      }
+      return { ok: true, url: data.url };
+    } catch (error) {
+      return {
+        ok: false,
+        error: apiErrorMessage(error, "Could not start Stripe Checkout."),
+      };
+    }
+  }, [currentUser]);
+
+  const openBillingPortal = useCallback(async (): Promise<RedirectResult> => {
+    if (!currentUser || currentUser.role !== "vendor") {
+      return { ok: false, error: "Only vendors can manage billing." };
+    }
+    if (!remoteAuthEnabled) {
+      return {
+        ok: false,
+        error: "Billing management needs the PizzaHub API with Stripe configured.",
+      };
+    }
+
+    try {
+      const data = await apiFetch<{ url?: string }>(
+        "/api/vendor/subscription/portal",
+        { method: "POST" },
+      );
+      if (!data.url) {
+        return { ok: false, error: "Stripe did not return a billing portal URL." };
+      }
+      return { ok: true, url: data.url };
+    } catch (error) {
+      return {
+        ok: false,
+        error: apiErrorMessage(error, "Could not open the Stripe billing portal."),
+      };
+    }
   }, [currentUser]);
 
   const value = useMemo<AppContextValue>(
@@ -885,6 +1162,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...state,
       currentUser,
       hydrated,
+      refresh,
       favourites,
       toggleFavourite,
       isFavourite,
@@ -905,11 +1183,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateOrderStatus,
       toggleBlockUser,
       upgradeSubscription,
+      openBillingPortal,
     }),
     [
       state,
       currentUser,
       hydrated,
+      refresh,
       favourites,
       toggleFavourite,
       isFavourite,
@@ -930,6 +1210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateOrderStatus,
       toggleBlockUser,
       upgradeSubscription,
+      openBillingPortal,
     ],
   );
 
