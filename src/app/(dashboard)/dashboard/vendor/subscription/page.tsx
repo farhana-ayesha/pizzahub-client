@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   CalendarDays,
   Check,
@@ -47,8 +46,13 @@ const premiumFeatures = [
 ];
 
 export default function VendorSubscriptionPage() {
-  const router = useRouter();
-  const { currentUser, transactions, menuItems, upgradeSubscription } = useApp();
+  const {
+    currentUser,
+    transactions,
+    menuItems,
+    upgradeSubscription,
+    openBillingPortal,
+  } = useApp();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -65,16 +69,25 @@ export default function VendorSubscriptionPage() {
 
   async function upgrade() {
     setBusy(true);
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    const result = upgradeSubscription();
+    const result = await upgradeSubscription();
     setBusy(false);
-    if (!result.ok) {
-      toast.error(result.error ?? "Could not upgrade the plan.");
+    if (!result.ok || !result.url) {
+      toast.error(result.error ?? "Could not start Stripe Checkout.");
       return;
     }
     setConfirmOpen(false);
-    toast.success("Premium activated! Welcome to the featured list.");
-    router.push("/payment/success?plan=premium");
+    window.location.assign(result.url);
+  }
+
+  async function manageBilling() {
+    setBusy(true);
+    const result = await openBillingPortal();
+    setBusy(false);
+    if (!result.ok || !result.url) {
+      toast.error(result.error ?? "Could not open the billing portal.");
+      return;
+    }
+    window.location.assign(result.url);
   }
 
   return (
@@ -179,7 +192,8 @@ export default function VendorSubscriptionPage() {
                 <Button
                   variant="outline"
                   className="w-full"
-                  onClick={() => toast.info("Stripe billing portal will open in the production build.")}
+                  onClick={manageBilling}
+                  disabled={busy}
                 >
                   <CreditCard /> Manage billing
                 </Button>
@@ -250,8 +264,8 @@ export default function VendorSubscriptionPage() {
             </p>
             <p className="flex items-start gap-2">
               <CalendarDays className="mt-0.5 size-4 shrink-0 text-primary" />
-              This frontend demo simulates a successful subscription so you can explore the
-              premium experience.
+              You will be redirected to Stripe Checkout. Premium features unlock only after the
+              webhook confirms your payment.
             </p>
             <div className="rounded-xl bg-cream p-3 text-xs leading-5">
               <p className="font-bold text-foreground">Stripe test card</p>
@@ -266,8 +280,8 @@ export default function VendorSubscriptionPage() {
           <DialogHeader>
             <DialogTitle>Upgrade to Premium</DialogTitle>
             <DialogDescription>
-              You&apos;ll be billed $29/month. In production this opens Stripe Checkout and
-              activates Premium only after the webhook confirms payment.
+              You&apos;ll be billed $29/month. Continuing opens Stripe Checkout in a secure
+              Stripe-hosted page; Premium activates only after the webhook confirms payment.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-xl bg-cream p-4">
