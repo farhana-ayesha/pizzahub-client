@@ -64,8 +64,7 @@ export default function VendorMenuPage() {
 
   async function toggle(item: MenuItem) {
     setBusyId(item.id);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const result = toggleMenuItemActive(item.id, !item.active);
+    const result = await toggleMenuItemActive(item.id, !item.active);
     setBusyId(null);
     if (!result.ok) {
       toast.error(result.error ?? "Could not update availability.");
@@ -77,8 +76,7 @@ export default function VendorMenuPage() {
   async function confirmDelete() {
     if (!selected) return;
     setBusyId(selected.id);
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    const result = deleteMenuItem(selected.id);
+    const result = await deleteMenuItem(selected.id);
     setBusyId(null);
     if (!result.ok) {
       toast.error(result.error ?? "Could not delete the item.");
