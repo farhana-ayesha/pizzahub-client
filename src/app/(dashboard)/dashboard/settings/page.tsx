@@ -66,8 +66,7 @@ export default function ProfileSettingsPage() {
       return;
     }
     setSaving(true);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const result = updateProfile({
+    const result = await updateProfile({
       name,
       image,
       phone,
