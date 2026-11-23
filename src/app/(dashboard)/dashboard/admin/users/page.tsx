@@ -63,8 +63,7 @@ export default function AdminUsersPage() {
   async function confirmBlock() {
     if (!blockUser) return;
     setBusy(true);
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    const result = toggleBlockUser(blockUser.id);
+    const result = await toggleBlockUser(blockUser.id);
     setBusy(false);
     if (!result.ok) {
       toast.error(result.error ?? "Could not update this user.");

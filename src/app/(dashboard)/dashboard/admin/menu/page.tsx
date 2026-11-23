@@ -58,8 +58,7 @@ export default function AdminMenuPage() {
 
   async function updateStatus(item: MenuItem, status: MenuStatus) {
     setBusyId(item.id);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const result = setMenuStatus(item.id, status);
+    const result = await setMenuStatus(item.id, status);
     setBusyId(null);
     if (!result.ok) {
       toast.error(result.error ?? "Could not update the item.");
@@ -77,8 +76,7 @@ export default function AdminMenuPage() {
   async function confirmDelete() {
     if (!selected) return;
     setBusyId(selected.id);
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    const result = deleteMenuItem(selected.id);
+    const result = await deleteMenuItem(selected.id);
     setBusyId(null);
     if (!result.ok) {
       toast.error(result.error ?? "Could not delete this item.");

@@ -41,8 +41,8 @@ export default function AdminOverviewPage() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 4);
 
-  function review(id: string, status: "approved" | "rejected") {
-    const result = setMenuStatus(id, status);
+  async function review(id: string, status: "approved" | "rejected") {
+    const result = await setMenuStatus(id, status);
     if (!result.ok) {
       toast.error(result.error ?? "Could not update the item.");
       return;
