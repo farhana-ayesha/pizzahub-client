@@ -4,11 +4,18 @@ A warm, responsive pizza ordering and delivery marketplace built with the Next.j
 Customers browse and order from local pizza shops, vendors manage menus, orders and their
 Premium plan, and admins review users, menu submissions and transactions.
 
-- Client repository: <https://github.com/farhana-ayesha/pizzahub-client>
-- Server repository: <https://github.com/farhana-ayesha/pizzahub-server>
-- Live website: add the deployed client URL here after deploying (for example
-  `https://pizzahub-client.vercel.app`). No live URL is committed because it depends on the
-  operator's hosting account and environment variables.
+## Live Demo
+
+https://pizzahub-client-pi-beryl.vercel.app/
+
+## GitHub Repositories
+
+- Client: https://github.com/farhana-ayesha/pizzahub-client
+- Server: https://github.com/farhana-ayesha/pizzahub-server
+
+## Live API
+
+https://pizzahub-server-size.onrender.com/
 
 ## Important features
 
