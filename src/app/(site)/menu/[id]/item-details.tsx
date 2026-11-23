@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -73,7 +73,7 @@ export function ItemDetails() {
 
   const vendor = item ? users.find((user) => user.id === item.vendorId) : undefined;
   const reviews = (item && menuItemReviews[item.id]) || demoReviews;
-  const related = useMemo(() => {
+  const related = (() => {
     if (!item) return [];
     const sameCategory = menuItems.filter(
       (entry) =>
@@ -91,7 +91,7 @@ export function ItemDetails() {
         !sameCategory.some((match) => match.id === entry.id),
     );
     return [...sameCategory, ...extra].slice(0, 3);
-  }, [item, menuItems]);
+  })();
 
   if (!hydrated || !currentUser) {
     return (
@@ -505,8 +505,7 @@ function OrderDialog({
       return;
     }
     setSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const result = createOrder({
+    const result = await createOrder({
       itemId: item.id,
       deliveryDate,
       deliveryAddress: address,
