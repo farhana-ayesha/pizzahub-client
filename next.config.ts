@@ -18,6 +18,14 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
     ],
   },
+  async rewrites() {
+    return [
+      {
+        source: "/api/auth/:path*",
+        destination: "https://pizzahub-server-size.onrender.onrender.com/api/auth/:path*",
+      },
+    ];
+  }
 };
 
 export default nextConfig;

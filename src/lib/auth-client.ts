@@ -10,7 +10,7 @@ import type { Role } from "@/lib/types";
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 export const remoteAuthEnabled = API_URL.length > 0;
 
-const AUTH_BASE = `${API_URL}/api/auth`;
+const AUTH_BASE = "/api/auth";
 
 export interface RemoteAuthUser {
   id: string;
