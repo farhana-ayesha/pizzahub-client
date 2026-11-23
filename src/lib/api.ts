@@ -41,7 +41,10 @@ export async function primeAccessToken(force = false): Promise<string | null> {
   accessToken = null;
 
   try {
-    const response = await fetch(`${API_URL}/api/auth/token`, {
+    // Auth cookies are first-party on the client origin because Next.js
+    // proxies /api/auth to the Express server. Call the token endpoint through
+    // that proxy; calling the API host directly would not send the cookie.
+    const response = await fetch("/api/auth/token", {
       credentials: "include",
     });
     if (!response.ok) return null;

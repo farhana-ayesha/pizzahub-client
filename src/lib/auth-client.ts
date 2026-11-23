@@ -66,6 +66,12 @@ async function authFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   if (!response.ok) {
+    if ([502, 503, 504].includes(response.status)) {
+      throw new AuthApiError(
+        "The authentication service is temporarily unavailable. Please try again shortly.",
+        response.status,
+      );
+    }
     const body = payload as { message?: string; error?: string } | string | null;
     const message =
       (typeof body === "string" ? body : body?.message ?? body?.error) ||
@@ -74,6 +80,30 @@ async function authFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   return payload as T;
+}
+
+const googleErrorMessages: Record<string, string> = {
+  access_denied: "Google sign-in was cancelled.",
+  account_blocked:
+    "This account has been blocked by an administrator. Please contact support.",
+  account_not_linked:
+    "An account with this email already exists. Sign in with your password first, then link Google from your profile settings.",
+  email_not_found:
+    "Google did not share an email address. Use a Google account with a verified email.",
+  invalid_callback_url:
+    "The Google callback URL is not allowed. Check the server's CLIENT_URL setting.",
+  oauth_link_error:
+    "Google could not be linked to this account. Please try again or use your password.",
+  state_mismatch:
+    "Google sign-in could not be verified. Please try again. If it keeps failing, check the Google callback URL configuration.",
+};
+
+export function googleAuthErrorMessage(code?: string | null): string {
+  if (!code) return "Google sign-in failed. Please try again.";
+  return (
+    googleErrorMessages[code.toLowerCase()] ??
+    "Google sign-in failed. Please try again."
+  );
 }
 
 export function normalizeRole(value?: string | null): Role {
@@ -128,11 +158,24 @@ export async function getRemoteSession(): Promise<RemoteAuthUser | null> {
   }
 }
 
-export async function remoteGoogleSignIn(callbackURL: string) {
-  const data = await authFetch<{ url?: string; redirect?: boolean }>("/sign-in/social", {
-    method: "POST",
-    body: JSON.stringify({ provider: "google", callbackURL }),
-  });
+export async function remoteGoogleSignIn(
+  callbackURL: string,
+  options: {
+    errorCallbackURL?: string;
+    role?: "customer" | "vendor";
+  } = {},
+) {
+  const body: Record<string, unknown> = { provider: "google", callbackURL };
+  if (options.errorCallbackURL) body.errorCallbackURL = options.errorCallbackURL;
+  if (options.role) body.additionalData = { role: options.role };
+
+  const data = await authFetch<{ url?: string; redirect?: boolean }>(
+    "/sign-in/social",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
   if (!data?.url) {
     throw new AuthApiError("Google sign-in could not be started.");
   }

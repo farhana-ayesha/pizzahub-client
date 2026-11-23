@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 
+// Better Auth is proxied through the client origin so the session/state cookies
+// stay first-party. This also avoids third-party cookie blocking on mobile.
+// NEXT_PUBLIC_API_URL is inlined at build time, so set it before `next build`.
+const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
+
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
@@ -19,13 +24,14 @@ const nextConfig: NextConfig = {
     ],
   },
   async rewrites() {
+    if (!apiUrl) return [];
     return [
       {
         source: "/api/auth/:path*",
-        destination: "https://pizzahub-server-size.onrender.onrender.com/api/auth/:path*",
+        destination: `${apiUrl}/api/auth/:path*`,
       },
     ];
-  }
+  },
 };
 
 export default nextConfig;

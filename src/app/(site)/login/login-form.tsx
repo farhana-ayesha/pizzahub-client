@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -17,15 +17,19 @@ import {
 import { toast } from "sonner";
 import { useApp } from "@/components/app-provider";
 import { AuthShell } from "@/components/auth-shell";
-import { GoogleAuthDialog } from "@/components/google-auth-dialog";
 import { GoogleIcon } from "@/components/google-icon";
-import { remoteAuthEnabled, remoteGoogleSignIn } from "@/lib/auth-client";
+import {
+  googleAuthErrorMessage,
+  remoteAuthEnabled,
+  remoteGoogleSignIn,
+} from "@/lib/auth-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { demoAccounts } from "@/lib/data";
 import { cn } from "@/lib/utils";
+import { GoogleAuthDialog } from "@/components/google-auth-dialog";
 
 const roleIcons = {
   customer: UserRound,
@@ -51,8 +55,13 @@ export function LoginForm() {
   const [googleOpen, setGoogleOpen] = useState(false);
 
   const redirect = searchParams.get("redirect");
+  const oauthError = searchParams.get("error");
   const redirectPath =
     redirect && redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : null;
+
+  useEffect(() => {
+    if (oauthError) setError(googleAuthErrorMessage(oauthError));
+  }, [oauthError]);
 
   async function submit(event?: React.FormEvent, demoEmail?: string, demoPassword?: string) {
     event?.preventDefault();
