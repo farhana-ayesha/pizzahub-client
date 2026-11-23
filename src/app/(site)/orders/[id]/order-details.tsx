@@ -129,8 +129,7 @@ export function OrderDetails() {
   async function handleCancel() {
     if (!order) return;
     setBusy(true);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    const result = cancelOrder(order.id);
+    const result = await cancelOrder(order.id);
     setBusy(false);
     if (!result.ok) {
       toast.error(result.error ?? "Could not cancel the order.");
@@ -143,8 +142,7 @@ export function OrderDetails() {
   async function handleVendorAction(status: "accepted" | "rejected") {
     if (!order) return;
     setBusy(true);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    const result = updateOrderStatus(order.id, status);
+    const result = await updateOrderStatus(order.id, status);
     setBusy(false);
     if (!result.ok) {
       toast.error(result.error ?? "Could not update the order.");
