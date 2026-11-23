@@ -47,8 +47,8 @@ export default function VendorOverviewPage() {
     .sort((a, b) => b.value - a.value)
     .slice(0, 6);
 
-  function process(orderId: string, status: "accepted" | "rejected") {
-    const result = updateOrderStatus(orderId, status);
+  async function process(orderId: string, status: "accepted" | "rejected") {
+    const result = await updateOrderStatus(orderId, status);
     if (!result.ok) {
       toast.error(result.error ?? "Could not update the order.");
       return;

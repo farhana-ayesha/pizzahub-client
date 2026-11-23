@@ -53,8 +53,7 @@ export default function VendorOrdersPage() {
 
   async function process(order: Order, status: "accepted" | "rejected") {
     setBusyId(order.id);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    const result = updateOrderStatus(order.id, status);
+    const result = await updateOrderStatus(order.id, status);
     setBusyId(null);
     if (!result.ok) {
       toast.error(result.error ?? "Could not update the order.");
